@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trivia Game - Tap to Open</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Canvas Confetti for celebrations -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Fredoka', 'Inter', sans-serif;
+            background-color: #ffffff;
+            user-select: none;
+            -webkit-user-select: none;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+
+        /* 3D Game Card Styling Matching Reference Screenshot */
+        .game-card {
+            position: relative;
+            aspect-ratio: 1 / 1;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.2s ease, filter 0.2s ease, opacity 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-size: 3.8rem;
+            font-weight: 500;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+            box-shadow: 0 8px 0 rgba(0, 0, 0, 0.18), 0 12px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Bottom Shaded Strip for Exact Wordwall 3D Bevel Look */
+        .game-card::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 28%;
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, 0.22) 100%);
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+            pointer-events: none;
+        }
+
+        .game-card:hover:not(.opened) {
+            transform: translateY(-6px) scale(1.02);
+            box-shadow: 0 14px 0 rgba(0, 0, 0, 0.18), 0 18px 25px rgba(0, 0, 0, 0.12);
+            filter: brightness(1.05);
+        }
+
+        .game-card:active:not(.opened) {
+            transform: translateY(3px) scale(0.98);
+            box-shadow: 0 3px 0 rgba(0, 0, 0, 0.18), 0 6px 10px rgba(0, 0, 0, 0.08);
+        }
+
+        /* Opened Completed State */
+        .game-card.opened {
+            opacity: 0.38;
+            filter: grayscale(0.5);
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 rgba(0, 0, 0, 0.1);
+            cursor: default;
+        }
+
+        .game-card.opened::before {
+            content: '✓';
+            position: absolute;
+            top: 6px;
+            right: 12px;
+            font-size: 1.75rem;
+            color: rgba(255, 255, 255, 0.95);
+            text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+        }
+
+        /* Modal transitions & animations */
+        .modal-overlay {
+            transition: opacity 0.25s ease-out;
+        }
+        .modal-content {
+            transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.25s ease-out;
+        }
+
+        /* Box Flip Animation when selected */
+        @keyframes boxFlip {
+            0% { transform: scale(1) rotateY(0deg); }
+            50% { transform: scale(1.1) rotateY(90deg); }
+            100% { transform: scale(1) rotateY(0deg); }
+        }
+        .anim-flip {
+            animation: boxFlip 0.4s ease-in-out forwards;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between bg-white text-gray-800">
+
+    <!-- HEADER / TOP NAVIGATION -->
+    <header class="w-full px-6 py-5 flex items-center justify-between relative border-b border-gray-100 bg-white">
+        <!-- Digital Clock Display (Left) -->
+        <div id="digitalClock" class="text-xl sm:text-2xl font-semibold tracking-tight text-gray-800 flex items-center gap-2">
+            12:00
+        </div>
+
+        <!-- Center Title matching image prompt -->
+        <h1 class="absolute left-1/2 -translate-x-1/2 text-2xl sm:text-3xl font-normal text-gray-700 tracking-wide text-center">
+            Pick One To Get Your Prize
+        </h1>
+
+        <!-- Controls (Right) -->
+        <div class="flex items-center space-x-2 sm:space-x-3">
+            <button onclick="toggleSound()" id="soundBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2.5 rounded-xl shadow-xs transition text-sm" title="Toggle Sound">
+                <i id="soundIcon" class="fa-solid fa-volume-high"></i>
+            </button>
+            <button onclick="resetGame()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 p-2.5 rounded-xl shadow-xs transition text-sm" title="Reset & Reshuffle Board">
+                <i class="fa-solid fa-rotate-right"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT - DYNAMICALLY GENERATED GRID -->
+    <main class="flex-1 flex items-center justify-center p-4 sm:p-8 max-w-7xl mx-auto w-full">
+        <div id="gridContainer" class="grid grid-cols-3 sm:grid-cols-6 gap-3 sm:gap-6 w-full">
+            <!-- Grid cards dynamically rendered here in random order -->
+        </div>
+    </main>
+
+    <!-- FOOTER PROGRESS TRACKER -->
+    <footer class="w-full bg-gray-50 border-t border-gray-100 py-3.5 px-6 flex justify-between items-center text-sm font-medium text-gray-600">
+        <div class="flex items-center gap-6">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-trophy text-amber-500 text-lg"></i>
+                <span>Score: <strong id="scoreDisplay" class="text-indigo-600 text-lg font-bold">0 pts</strong></span>
+            </div>
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-box-open text-gray-500"></i>
+                <span>Questions Answered: <strong id="openedDisplay" class="text-gray-800 text-lg font-bold">0 / 3</strong></span>
+            </div>
+        </div>
+        <div class="text-xs sm:text-sm text-gray-400">
+            Tap a box to reveal trivia question
+        </div>
+    </footer>
+
+    <!-- TRIVIA QUESTION MODAL -->
+    <div id="questionModal" class="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 modal-overlay hidden opacity-0">
+        <div id="questionCardContent" class="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 sm:p-8 modal-content scale-95 relative overflow-hidden border-t-8 border-indigo-600">
+            <!-- Modal Header -->
+            <div class="flex justify-between items-center mb-5">
+                <div class="flex items-center gap-3">
+                    <span id="questionBoxBadge" class="w-11 h-11 rounded-2xl flex items-center justify-center text-white text-xl font-bold shadow-md">1</span>
+                    <div>
+                        <span id="questionCategory" class="text-xs uppercase tracking-wider font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">Category</span>
+                        <h3 id="questionPointsBadge" class="text-sm font-bold text-amber-600 mt-0.5">Worth: 100 Points</h3>
+                    </div>
+                </div>
+                <button onclick="closeQuestionModal()" class="text-gray-400 hover:text-gray-600 p-2 rounded-lg text-xl">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Question Text -->
+            <div class="mb-6">
+                <p id="questionText" class="text-lg sm:text-xl text-gray-800 font-semibold leading-relaxed">
+                    Question text goes here?
+                </p>
+            </div>
+
+            <!-- Choices List -->
+            <div id="optionsContainer" class="space-y-3 mb-5">
+                <!-- Dynamically filled -->
+            </div>
+
+            <!-- Answer Feedback -->
+            <div id="feedbackBox" class="hidden p-4 rounded-2xl text-center font-bold text-lg mb-4"></div>
+
+            <!-- Modal Footer -->
+            <div class="flex justify-end gap-3 pt-3 border-t border-gray-100">
+                <button onclick="closeQuestionModal()" class="px-5 py-2.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold transition">
+                    Continue
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Array of 12 distinct card hex colors
+        const CARD_COLORS = [
+            '#555A5D', '#C83238', '#F47B20', '#258348',
+            '#BF50CD', '#3B21CB', '#33B880', '#DC4A25',
+            '#8020E0', '#3FA0E6', '#CE3034', '#F2851D',
+            '#8020E0', '#3FA0E6', '#CE3034', '#F2851D'
+        ];
+
+        // 12 Trivia Questions
+        const TRIVIA_DATA = [
+            {
+                id: 1,
+                category: "GrabMaps - ANP",
+                question: "What is a POI Stand For ??",
+                options: ["Point Of Information", "Point Of Interest", "Place Of Interest", "Place Of Information"],
+                answer: 1,
+                points: 100
+            },
+            {
+                id: 2,
+                category: "GrabMaps - Indoor",
+                question: "How many Indoor Maps that we have in GrabMaps ??",
+                options: ["15", "20", "18", "16"],
+                Image: "/image/image1.png",
+                answer: 2,
+                points: 150
+            },
+            {
+                id: 3,
+                category: "GrabMaps - ANP",
+                question: "How many EV chargers are there around TK Central??",
+                options: ["1", "2", "3", "4"],
+                answer: 1,
+                points: 100
+            },
+            {
+                id: 4,
+                category: "GrabMaps - ANP",
+                question: "How many traffic lights from TK Central to Aeon Mall Sen Sok City??",
+                options: ["2", "3", "5", "8"],
+                answer: 2,
+                points: 200
+            },
+            {
+                id: 5,
+                category: "GrabMaps - ANP",
+                question: "Can GrabMaps display drivers on the map? Could you show us??",
+                options: ["Yes", "No"],
+                answer: 0,
+                points: 150
+            },
+            {
+                id: 6,
+                category: "GrabMaps - ANP",
+                question: "Can GrabMaps show us areas where traffic enforcement is in place??",
+                options: ["Yes", "No"],
+                answer: 0,
+                points: 250
+            },
+            {
+                id: 7,
+                category: "GrabMaps - Indoor",
+                question: "How to use Indoor Maps in GrabMaps?? Show Us.",
+                options: ["Open App > Indoor Tab", "Select Mall > View Floor Plan", "Select destination", "Select Navigate"],
+                answer: 0,
+                points: 150
+            },
+            {
+                id: 8,
+                category: "GrabMaps - Rich Attribute",
+                question: "What does Rich Attributes Stand For ??",
+                options: ["Add detail For POI", "Create new POI", "Update location", "Update naming"],
+                answer: 0,
+                points: 200
+            },
+            {
+                id: 9,
+                category: "GrabMaps - ANP",
+                question: "Can you show us how to use the Add Places feature?",
+                options: ["Yes","No"],
+                answer: 0,
+                points: 150
+            },
+            {
+                id: 10,
+                category: "GrabMaps - ANP",
+                question: "Can you show us how to use the Update Places feature?",
+                options: ["Yes","No"],
+                answer: 0,
+                points: 150
+            },
+            {
+                id: 11,
+                category: "GrabMaps - ANP",
+                question: "What steps are involved in submitting a new place?",
+                options: ["36", "48", "64", "81"],
+                answer: 2,
+                points: 200
+            },
+            {
+                id: 12,
+                category: "GrabMaps - ANP",
+                question: "How many Features are available on Grab Maps?",
+                options: ["Silver", "Gold", "Copper", "Aluminum"],
+                answer: 1,
+                points: 300
+            },
+            {
+                id: 13,
+                category: "GrabMaps - ANP",
+                question: "Show us how to select 'Destination -> Destination ' in GrabMaps",
+                options: ["YES", "NO"],
+                answer: 0,
+                points: 300
+            },
+            {
+                id: 14,
+                category: "GrabMaps - ANP",
+                question: "How to turn on road restriction, road closure.",
+                options: ["YES", "NO"],
+                answer: 0,
+                points: 300
+            }
+        ];
+
+        // Game State Variables
+        let activeBoardState = []; // Stores randomized mapping of boxes
+        let openedCards = new Set();
+        let currentScore = 0;
+        let activeCardIndex = null;
+        let soundEnabled = true;
+
+        // Fisher-Yates Shuffle Algorithm
+        function shuffleArray(array) {
+            const shuffled = [...array];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        }
+
+        // Initialize / Randomize the Game Board
+        function initBoard() {
+            const gridContainer = document.getElementById('gridContainer');
+            gridContainer.innerHTML = '';
+
+            // Shuffle display numbers (1-14), question objects, and color palette
+            const numbers = shuffleArray([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+            const shuffledTrivia = shuffleArray(TRIVIA_DATA);
+            const shuffledColors = shuffleArray(CARD_COLORS);
+
+            activeBoardState = [];
+
+            for (let i = 0; i < 14; i++) {
+                const boxObj = {
+                    index: i,
+                    labelNumber: numbers[i],
+                    color: shuffledColors[i],
+                    question: shuffledTrivia[i]
+                };
+                activeBoardState.push(boxObj);
+
+                const cardEl = document.createElement('div');
+                cardEl.id = `card-slot-${i}`;
+                cardEl.className = 'game-card';
+                cardEl.style.backgroundColor = boxObj.color;
+                cardEl.innerText = boxObj.labelNumber;
+                cardEl.onclick = () => openBox(i);
+
+                gridContainer.appendChild(cardEl);
+            }
+        }
+
+        // --- Audio Synthesizer ---
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+
+        function playSound(type) {
+            if (!soundEnabled) return;
+            try {
+                if (!audioCtx) audioCtx = new AudioContext();
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                const now = audioCtx.currentTime;
+
+                if (type === 'click') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(450, now);
+                    osc.frequency.exponentialRampToValueAtTime(750, now + 0.06);
+                    gain.gain.setValueAtTime(0.12, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.06);
+                    osc.start(now);
+                    osc.stop(now + 0.06);
+                } else if (type === 'win') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(523.25, now);
+                    osc.frequency.setValueAtTime(659.25, now + 0.1);
+                    osc.frequency.setValueAtTime(783.99, now + 0.2);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.45);
+                    osc.start(now);
+                    osc.stop(now + 0.45);
+                } else if (type === 'wrong') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(220, now);
+                    osc.frequency.setValueAtTime(175, now + 0.15);
+                    gain.gain.setValueAtTime(0.18, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.35);
+                    osc.start(now);
+                    osc.stop(now + 0.35);
+                }
+            } catch(e) {
+                console.log('Audio Context Error', e);
+            }
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            const icon = document.getElementById('soundIcon');
+            icon.className = soundEnabled ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark text-red-500';
+        }
+
+        // Clock display logic
+        function updateClock() {
+            const now = new Date();
+            let hours = now.getHours();
+            let minutes = now.getMinutes();
+            hours = hours < 10 ? '0' + hours : hours;
+            minutes = minutes < 10 ? '0' + minutes : minutes;
+            document.getElementById('digitalClock').innerText = `${hours}:${minutes}`;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // --- Tap-to-Open Action ---
+        function openBox(slotIndex) {
+            if (openedCards.has(slotIndex)) return;
+            playSound('click');
+            activeCardIndex = slotIndex;
+
+            const cardEl = document.getElementById(`card-slot-${slotIndex}`);
+            cardEl.classList.add('anim-flip');
+            
+            setTimeout(() => {
+                cardEl.classList.remove('anim-flip');
+                openQuestionModal(slotIndex);
+            }, 300);
+        }
+
+        function openQuestionModal(slotIndex) {
+            const slotData = activeBoardState[slotIndex];
+            const qData = slotData.question;
+
+            const badge = document.getElementById('questionBoxBadge');
+            badge.innerText = slotData.labelNumber;
+            badge.style.backgroundColor = slotData.color;
+
+            document.getElementById('questionCategory').innerText = qData.category;
+            document.getElementById('questionPointsBadge').innerText = `Worth: ${qData.points} Points`;
+            document.getElementById('questionText').innerText = qData.question;
+
+            const optionsContainer = document.getElementById('optionsContainer');
+            optionsContainer.innerHTML = '';
+
+            const feedback = document.getElementById('feedbackBox');
+            feedback.classList.add('hidden');
+
+            qData.options.forEach((opt, idx) => {
+                const btn = document.createElement('button');
+                btn.className = "w-full text-left p-4 rounded-2xl border-2 border-gray-100 hover:border-indigo-500 hover:bg-indigo-50/50 font-semibold text-gray-700 transition flex items-center justify-between group";
+                btn.innerHTML = `
+                    <span>${opt}</span>
+                    <span class="w-7 h-7 rounded-full border border-gray-300 flex items-center justify-center text-xs text-gray-400 group-hover:border-indigo-500 group-hover:text-indigo-600 font-bold">
+                        ${String.fromCharCode(65 + idx)}
+                    </span>
+                `;
+                btn.onclick = () => handleAnswerSubmit(idx, qData.answer, btn, qData.points);
+                optionsContainer.appendChild(btn);
+            });
+
+            const modal = document.getElementById('questionModal');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                modal.querySelector('.modal-content').classList.remove('scale-95');
+            }, 10);
+        }
+
+        function handleAnswerSubmit(selectedIndex, correctIndex, buttonEl, pointsValue) {
+            const optionsContainer = document.getElementById('optionsContainer');
+            const buttons = optionsContainer.querySelectorAll('button');
+            const feedback = document.getElementById('feedbackBox');
+
+            buttons.forEach(b => b.disabled = true);
+
+            const isCorrect = selectedIndex === correctIndex;
+
+            if (isCorrect) {
+                playSound('win');
+                buttonEl.classList.remove('border-gray-100', 'hover:border-indigo-500');
+                buttonEl.classList.add('border-emerald-500', 'bg-emerald-50', 'text-emerald-900');
+
+                currentScore += pointsValue;
+                feedback.innerText = `🎉 Correct! +${pointsValue} Points!`;
+                feedback.className = "p-4 rounded-2xl text-center font-bold text-lg mb-4 bg-emerald-100 text-emerald-800 block";
+
+                if (window.confetti) {
+                    confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+                }
+            } else {
+                playSound('wrong');
+                buttonEl.classList.remove('border-gray-100', 'hover:border-indigo-500');
+                buttonEl.classList.add('border-rose-500', 'bg-rose-50', 'text-rose-900');
+                
+                if (buttons[correctIndex]) {
+                    buttons[correctIndex].classList.add('border-emerald-500', 'bg-emerald-50');
+                }
+
+                feedback.innerText = "❌ Oops! Incorrect.";
+                feedback.className = "p-4 rounded-2xl text-center font-bold text-lg mb-4 bg-rose-100 text-rose-800 block";
+            }
+
+            // Mark card as opened
+            if (!openedCards.has(activeCardIndex)) {
+                openedCards.add(activeCardIndex);
+                document.getElementById(`card-slot-${activeCardIndex}`).classList.add('opened');
+            }
+
+            updateScoreboard();
+        }
+
+        function closeQuestionModal() {
+            playSound('click');
+            const modal = document.getElementById('questionModal');
+            modal.classList.add('opacity-0');
+            modal.querySelector('.modal-content').classList.add('scale-95');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 200);
+        }
+
+        function updateScoreboard() {
+            document.getElementById('scoreDisplay').innerText = `${currentScore} pts`;
+            document.getElementById('openedDisplay').innerText = `${openedCards.size} / 12`;
+        }
+
+        function resetGame() {
+            playSound('click');
+            openedCards.clear();
+            currentScore = 0;
+            updateScoreboard();
+            initBoard(); // Reshuffles numbers, colors, and questions
+        }
+
+        // Initialize board on page load
+        initBoard();
+    </script>
+</body>
+</html>
